@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package livraria;
+
+service Livraria{
+    rpc Cadastrar (Usuario) returns (Resposta);
+    rpc Login (Usuario) returns (Resposta);
+    rpc AdicionarLivro (Livro) returns (Resposta);
+    rpc Listar (Index) returns (Livro);
+    rpc Iniciar (Index) returns (Resposta);
+    rpc Pedir (Pedido) returns (Resposta);
+    rpc Pedidos (Index) returns (Pedido);
+}
+
+message Usuario {
+    string login = 1;
+    string senha = 2;
+    string token = 3;
+}
+
+message Resposta {
+    string message = 1;
+}
+
+message Livro{
+    string titulo = 1;
+    string autor = 2;
+    int32 ano = 3;
+    int32 qtd = 4;
+    float valor = 5;
+}
+
+message Index{
+    int32 index = 1;
+}
+
+message PedidoUsuario{
+    int32 index = 1;
+    string token = 2;
+}
+
+message Pedido{
+    int32 id = 1;
+    string titulo = 2;
+    string token = 3;
+    int32 qtd = 4;
+    float total = 5;
+}
