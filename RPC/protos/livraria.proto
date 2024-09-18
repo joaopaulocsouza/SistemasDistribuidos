@@ -5,11 +5,10 @@ package livraria;
 service Livraria{
     rpc Cadastrar (Usuario) returns (Resposta);
     rpc Login (Usuario) returns (Resposta);
-    rpc AdicionarLivro (Livro) returns (Resposta);
     rpc Listar (Index) returns (Livro);
     rpc Iniciar (Index) returns (Resposta);
     rpc Pedir (Pedido) returns (Resposta);
-    rpc Pedidos (Index) returns (Pedido);
+    rpc Pedidos (PedidoUsuario) returns (Pedido);
 }
 
 message Usuario {

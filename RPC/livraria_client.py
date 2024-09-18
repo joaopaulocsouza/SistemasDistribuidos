@@ -14,9 +14,10 @@ def run():
         res = stub.Iniciar(void)
 
         while(1):
-            print("1. Cadastrar")
+            print("\n\n1. Cadastrar")
             print("2. Entrar")
             rpc_call = input("Selecionar opção: ")
+            print('\n')
 
             if rpc_call == "1":
                 login = input("Insira o nome de usuário: ")
@@ -42,11 +43,12 @@ def run():
                         print("Erro no login")
             
             while(token != 'NULL'):
-                print("1. Listar")
+                print("\n\n1. Listar")
                 print("2. Efetuar pedido")
                 print("3. Pedidos")
                 print("0. Sair")
                 rpc_call = input("Selecionar opção: ")
+                print('\n')
 
                 if rpc_call == "0":
                     token = 'NULL'
@@ -76,9 +78,9 @@ def run():
                         res = stub.Pedidos(dados)
                         if res.titulo == 'NULL':
                             break
-                        else:
+                        elif res.titulo != 'IGNORE':
                             print(res)
-                            i = i+1
+                        i = i+1
 
 
 if __name__ == "__main__":

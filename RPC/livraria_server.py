@@ -56,7 +56,7 @@ class LivrariaServicer(livraria_pb2_grpc.LivrariaServicer):
             json.dump(data, file, indent=4)
         file.close()
 
-        usuarios.append(request)
+        usuarios.append(obj)
         resposta.message = f"Usuário {request.login} cadastrado com sucesso"
         return resposta
 
@@ -72,19 +72,6 @@ class LivrariaServicer(livraria_pb2_grpc.LivrariaServicer):
                 else:
                     break
         resposta.message = f"Erro"
-        return resposta
-
-    def AdicionarLivro(self, request, context):
-        print("Dados livro:")
-        print(request)
-        resposta = livraria_pb2.Resposta()
-        for livro in livros:
-            if livro.titulo == request.titulo:
-                resposta.message = f"{livro.titulo} já cadastrado"
-                return resposta
-        
-        livros.append(request)
-        resposta.message = f"Usuário {request.titulo} cadastrado com sucesso"
         return resposta
     
     def Listar(self, request, context):
@@ -107,7 +94,7 @@ class LivrariaServicer(livraria_pb2_grpc.LivrariaServicer):
         for livro in livros:
             if livro['titulo'] == request.titulo:
                 if livro['qtd'] >= request.qtd:
-                    request.id = len(pedidos)
+                    request.id = len(pedidos)+1
                     request.total = livro['valor'] * request.qtd
                     livro['qtd'] = livro['qtd'] - request.qtd
 
@@ -129,6 +116,7 @@ class LivrariaServicer(livraria_pb2_grpc.LivrariaServicer):
                         json.dump(data, file, indent=4)
                     file.close()
 
+                    pedidos.append(obj)
                     resposta.message = f"Compra efetuada com sucesso"
                     return resposta
                 else:
@@ -141,14 +129,14 @@ class LivrariaServicer(livraria_pb2_grpc.LivrariaServicer):
         global pedidos
         resposta = livraria_pb2.Pedido()
         if request.index < len(pedidos):
-            if request.token == pedidos['token']:
+            if request.token == pedidos[request.index]['token']:
                 resposta.id = pedidos[request.index]['id']
                 resposta.titulo = pedidos[request.index]['titulo']
                 resposta.qtd = pedidos[request.index]['qtd']
                 resposta.total = pedidos[request.index]['total']
                 return resposta
             else:
-                resposta.titulo = f"NULL"
+                resposta.titulo = f"IGNORE"
         else: 
             resposta.titulo = f"NULL"
         return resposta

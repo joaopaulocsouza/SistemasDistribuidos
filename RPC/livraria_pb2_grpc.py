@@ -49,11 +49,6 @@ class LivrariaStub(object):
                 request_serializer=livraria__pb2.Usuario.SerializeToString,
                 response_deserializer=livraria__pb2.Resposta.FromString,
                 _registered_method=True)
-        self.AdicionarLivro = channel.unary_unary(
-                '/livraria.Livraria/AdicionarLivro',
-                request_serializer=livraria__pb2.Livro.SerializeToString,
-                response_deserializer=livraria__pb2.Resposta.FromString,
-                _registered_method=True)
         self.Listar = channel.unary_unary(
                 '/livraria.Livraria/Listar',
                 request_serializer=livraria__pb2.Index.SerializeToString,
@@ -71,7 +66,7 @@ class LivrariaStub(object):
                 _registered_method=True)
         self.Pedidos = channel.unary_unary(
                 '/livraria.Livraria/Pedidos',
-                request_serializer=livraria__pb2.Index.SerializeToString,
+                request_serializer=livraria__pb2.PedidoUsuario.SerializeToString,
                 response_deserializer=livraria__pb2.Pedido.FromString,
                 _registered_method=True)
 
@@ -86,12 +81,6 @@ class LivrariaServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def Login(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def AdicionarLivro(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -134,11 +123,6 @@ def add_LivrariaServicer_to_server(servicer, server):
                     request_deserializer=livraria__pb2.Usuario.FromString,
                     response_serializer=livraria__pb2.Resposta.SerializeToString,
             ),
-            'AdicionarLivro': grpc.unary_unary_rpc_method_handler(
-                    servicer.AdicionarLivro,
-                    request_deserializer=livraria__pb2.Livro.FromString,
-                    response_serializer=livraria__pb2.Resposta.SerializeToString,
-            ),
             'Listar': grpc.unary_unary_rpc_method_handler(
                     servicer.Listar,
                     request_deserializer=livraria__pb2.Index.FromString,
@@ -156,7 +140,7 @@ def add_LivrariaServicer_to_server(servicer, server):
             ),
             'Pedidos': grpc.unary_unary_rpc_method_handler(
                     servicer.Pedidos,
-                    request_deserializer=livraria__pb2.Index.FromString,
+                    request_deserializer=livraria__pb2.PedidoUsuario.FromString,
                     response_serializer=livraria__pb2.Pedido.SerializeToString,
             ),
     }
@@ -213,33 +197,6 @@ class Livraria(object):
             target,
             '/livraria.Livraria/Login',
             livraria__pb2.Usuario.SerializeToString,
-            livraria__pb2.Resposta.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def AdicionarLivro(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/livraria.Livraria/AdicionarLivro',
-            livraria__pb2.Livro.SerializeToString,
             livraria__pb2.Resposta.FromString,
             options,
             channel_credentials,
@@ -347,7 +304,7 @@ class Livraria(object):
             request,
             target,
             '/livraria.Livraria/Pedidos',
-            livraria__pb2.Index.SerializeToString,
+            livraria__pb2.PedidoUsuario.SerializeToString,
             livraria__pb2.Pedido.FromString,
             options,
             channel_credentials,

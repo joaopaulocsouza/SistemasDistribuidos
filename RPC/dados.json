@@ -1,57 +1,18 @@
 {
     "pedidos": [
         {
-            "id": 48,
-            "titulo": "Sombras do Passado",
-            "token": "FmsytnRGY4",
-            "qtd": 2,
-            "total": 50.0
-        },
-        {
-            "id": 48,
+            "id": 1,
             "titulo": "O Enigma do Tempo",
-            "token": "FmsytnRGY4",
-            "qtd": 6,
-            "total": 179.94000244140625
-        },
-        {
-            "id": 2,
-            "titulo": "O Espelho da Alma",
-            "token": "24KVCTBGZm",
-            "qtd": 9,
-            "total": 251.91000366210938
+            "token": "M88N01CVdd",
+            "qtd": 3,
+            "total": 89.97000122070312
         }
     ],
     "usuarios": [
         {
-            "login": "jaoo",
-            "senha": "123",
-            "token": "FmsytnRGY4"
-        },
-        {
             "login": "joao",
             "senha": "123",
-            "token": "24KVCTBGZm"
-        },
-        {
-            "login": "joa",
-            "senha": "123",
-            "token": "rVuqUr2KpJ"
-        },
-        {
-            "login": "2",
-            "senha": "2",
-            "token": "995yZScoem"
-        },
-        {
-            "login": "",
-            "senha": "",
-            "token": "gP87croepF"
-        },
-        {
-            "login": "jp",
-            "senha": "123",
-            "token": "02wPdPRX2W"
+            "token": "M88N01CVdd"
         }
     ],
     "livros": [
@@ -67,7 +28,7 @@
             "autor": "Jo\u00c3\u00a3o Silva",
             "ano": 2001,
             "valor": 29.99,
-            "qtd": 4
+            "qtd": 1
         },
         {
             "titulo": "Mist\u00c3\u00a9rio na Ilha Perdida",
@@ -375,21 +336,21 @@
             "autor": "Marcos Costa",
             "ano": 2007,
             "valor": 24.0,
-            "qtd": 5
+            "qtd": 3
         },
         {
             "titulo": "O Sopro do Vento",
             "autor": "Adriana Melo",
             "ano": 2005,
             "valor": 22.5,
-            "qtd": 7
+            "qtd": 2
         },
         {
             "titulo": "O Espelho da Alma",
             "autor": "Paulo Oliveira",
             "ano": 2019,
             "valor": 27.99,
-            "qtd": 1
+            "qtd": 9
         }
     ]
 }

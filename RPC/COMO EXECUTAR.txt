@@ -1,0 +1,14 @@
+Necessário python utilizei a versao 3.12
+instalar gRPC
+comandos para instalar
+    python -m pip install grpcio
+    python -m pip install grpcio-tools
+
+comando para compilar protobuf
+    python run.py 
+
+executar server
+    python ./livraria_server.py
+
+executar client
+    python ./livraria_client.py
