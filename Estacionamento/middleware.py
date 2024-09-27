@@ -1,5 +1,8 @@
 import socket
 import threading
+import time
+
+semaforo = threading.Semaphore(1)
 
 class Middleware:
     def __init__(self, estacao_id, gerente_host, gerente_port, middleware_port):
@@ -8,7 +11,25 @@ class Middleware:
         self.gerente_host = gerente_host
         self.gerente_port = gerente_port
         self.middleware_port = middleware_port  # Porta única para cada middleware
-        self.vagas_ocupadas = 0
+        self.vagas_ocupadas = 0        
+          
+        self.conexoes = []
+        
+        self.next_middleware = None
+        self.next_ativo = False
+        self.next_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.next_ping = False
+        
+    def send_message(self, conn, message):
+        """Função para enviar mensagens de forma segura entre threads."""
+        semaforo.acquire()
+        try:
+            conn.send(message.encode('utf-8'))
+        except Exception as e:
+            print(f"Erro ao enviar mensagem: {e}")
+        finally:
+            time.sleep(0.5)
+            semaforo.release()
 
     def adicionar_estacao(self, estacao_id, host, port, vagas, ativo):
         self.estacoes[estacao_id] = {
@@ -19,7 +40,6 @@ class Middleware:
             'ativo': ativo,
             'carros': []
         }
-        print(f"Estação adicionada: {estacao_id}")
         self.atualizar_gerente(estacao_id)
 
     def ativar_estacao(self, estacao_id):
@@ -64,8 +84,19 @@ class Middleware:
         while True:
             conn, addr = server_socket.accept()
             try:
+                
+                self.conexoes.append(conn)
+                print(f"Nova conexão de {addr} {len(self.conexoes)}")
                 message = conn.recv(1024).decode('utf-8')
-                print(f"M[{self.estacao_id}] recebeu: {message}")
+                print(f"Middleware {self.estacao_id} recebeu: {message}")
+                
+                if "PING" in message:
+                    self.send_message(conn, "PONG")
+                    continue
+                
+                if "PONG" in message:
+                    self.next_ping = False
+                    continue
 
                 if "ACTIVATE" in message:
                     estacao_id = message.split()[1]
@@ -130,7 +161,7 @@ class Middleware:
                 else:
                     response = f"Comando desconhecido ({message})\n"
 
-                conn.sendall(response.encode('utf-8'))
+                self.send_message(conn, response)
 
             except Exception as e:
                 print(f"Erro ao processar a mensagem: {e}")
@@ -188,15 +219,89 @@ class Middleware:
         estacao = self.estacoes[estacao_id]
         status = "ATIVA" if estacao['ativo'] else "INATIVA"
         carros = str(estacao['carros'])
-        mensagem = f"ATUALIZAR {estacao_id} {status} {estacao['vagas']} {estacao['vagas_ocupadas']} {carros}"
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+        mensagem = f"ATUALIZAR {estacao_id} {status} {estacao['vagas']} {estacao['vagas_ocupadas']} {carros} {self.middleware_port}"
+       # Criar uma nova conexão socket
+        conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            conn.connect((self.gerente_host, self.gerente_port))
+            self.send_message(conn, mensagem)
+            # Iniciar uma thread para atualização periódica
+            threading.Thread(target=self.atualizar_gerente_periodicamente, args=(estacao_id, conn,)).start()
+        except Exception as e:
+            print(f"Não foi possível conectar ao Gerente na {self.gerente_host}:{self.gerente_port}")
+            return
+        
+        
+    def atualizar_gerente_periodicamente(self, estacao_id, conn):
+        while True:
+            time.sleep(0.5)
+
+            mensagem = "Olá"
             try:
-                client_socket.connect((self.gerente_host, self.gerente_port))
-                client_socket.sendall(mensagem.encode('utf-8'))
-                response = client_socket.recv(1024).decode('utf-8')
-                print(f"Gerente resposta: {response}")
-            except ConnectionRefusedError:
-                print(f"Não foi possível conectar ao Gerente na {self.gerente_host}:{self.gerente_port}")
+                self.send_message(conn, mensagem)
+                response = conn.recv(1024).decode('utf-8')
+                if "NEXT" in response:
+                    try:
+                        splited = response.split()
+                        if len(splited) < 2:
+                            print("Não há próxima estação")
+                            break
+                        port = int(splited[1])
+                        
+                        
+                        if self.next_ativo:
+                            self.next_conn.close()
+                            self.next_ativo = False
+                            self.next_middleware.join()
+                            print(f"{self.estacao_id}: Thread anterior foi finalizada.")
+                        
+                        print(self.next_ativo, self.next_middleware, self.next_conn)
+                        self.next_ativo = True
+                        self.next_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        self.next_middleware = threading.Thread(target=self.verificar_conexao_periodicamente, args=('127.0.0.1', port, conn))
+                        print(self.next_ativo, self.next_middleware, self.next_conn)
+                        self.next_middleware.start()
+                        
+                    except Exception as e:
+                        print(f"{self.estacao_id} {e}")
+                        pass
+
+            except Exception as e:
+                print(f"Não foi possível conectar ao Gerente na {self.gerente_host}:{self.gerente_port} - {e}")
+                conn.close()  # Fechar o socket em caso de erro
+
+            time.sleep(0.5)  # Aguardar antes de enviar a próxima mensagem
+
+
+    def verificar_conexao_periodicamente(self, host, port, conn):      
+        """
+        Verifica periodicamente a conexão com outro middleware.
+        """
+        print(f"Conectando ao middleware {host}:{port}...")
+        mensagem = f"PING {self.estacao_id}"
+
+        try:
+            self.next_conn.connect((host, port))
+            
+            while True:
+                self.next_conn.send(mensagem.encode('utf-8'))
+                self.next_ping = True
+                time.sleep(3)
+                if not self.next_ping:
+                    print(f"Conexão com o middleware {host}:{port} perdida.")
+                    self.next_ping = False
+                    break
+                else: 
+                    self.send_message(self.next_conn, "ELEICAO")
+                    self.next_ping = False
+                    print(f"Conexão com o middleware {host}:{port} OK.")
+                
+
+            # Iniciar a thread de atualização periódica para o novo middleware
+        except Exception as e:
+            print(f"Não foi possível conectar ao middleware na {host}:{port} - {e}")
+            conn.close()  # Fechar o socket em caso de erro
+            return
 
     def atualizar_gerente_carro(self, acao, carro_id):
         mensagem = f"{acao.upper()} {self.estacao_id} {carro_id} {self.estacoes[self.estacao_id]['vagas_ocupadas']}"
