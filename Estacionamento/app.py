@@ -19,30 +19,33 @@ class MiddlewareApp:
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.bind((self.host, self.port))
         server_socket.listen(5)
-        print(f"App {self.estacao_id} aguardando conexões do carro na porta {self.port}...")
+        print(f"Estação[{self.estacao_id}] | porta {self.port} ")
 
         while True:
             conn, addr = server_socket.accept()
             message = conn.recv(1024).decode('utf-8')
-            print(f"App {self.estacao_id} recebeu: {message} do carro")
-
+            print(f"{self.estacao_id} recebeu: {message}")
+            
             if "AE" in message:
                 # Ativa a própria estação ao receber "AE"
                 self.ativar_estacao()
                 response = f"Estação {self.estacao_id} ativada e pronta para trabalhar com outras estações."
                 self.comunicar_middleware_ativacao()
+            
             elif "STATUS" in message:
                 response = f"Estação {self.estacao_id} está {'ativa' if self.ativo else 'inativa'}."
+            
             elif not self.ativo:
-                # Se a estação está inativa, redireciona para a estação ativa mais próxima
-                response = self.redirecionar_requisicao()
+                # Se a estação está inativa, redireciona para a estação ativa mais próxima e repassa a operação
+                response = self.redirecionar_requisicao(message)
+
             else:
                 if "RV" in message:
                     id_message = message.split(".")[1]  # Extrai o ID do carro da mensagem (formato RV.id)
                     response = self.requisitar_vaga(id_message)
                     # Após a requisição da vaga, imprime as estações ativas que o middleware retornou
                     estacoes_ativas = self.obter_estacoes_ativas()
-                    print(f"Carro {id_message} inserido. Estações ativas: {estacoes_ativas}\n")
+                    print(f"Carro[{id_message}] inserido |{estacoes_ativas}\n")
                 
                 elif "LV" in message:
                     id_message = message.split(".")[1]  # Extrai o ID do carro da mensagem (formato LV.id)
@@ -110,12 +113,42 @@ class MiddlewareApp:
             response = client_socket.recv(1024).decode('utf-8')
             print(f"Middleware resposta: {response}")
 
-    def redirecionar_requisicao(self):
+    def redirecionar_requisicao(self, original_message):
+        # Verifica as estações ativas no middleware
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
             client_socket.connect((self.middleware_host, self.middleware_port))
-            client_socket.sendall(f"REDIRECT {self.estacao_id}".encode('utf-8'))
+            client_socket.sendall(f"LIST".encode('utf-8'))
             response = client_socket.recv(1024).decode('utf-8')
-            return response
+        
+        print(f"RESPONSE REDIRECT: {response}")
+        # Garante que a resposta contém estações ativas
+        if "Estações ativas:" in response:
+            try:
+                estacoes_ativas = response.split(": ")[1].split(", ")
+            except IndexError:
+                return "Erro ao processar estações ativas."
+
+            # Se há estações ativas, redireciona para a primeira estação ativa
+            if estacoes_ativas:
+                estacao_escolhida = estacoes_ativas[0]  # Seleciona a primeira estação ativa
+                print(f"Redirect To : {estacao_escolhida}")
+                
+                middleware_port = 9000 + int(estacao_escolhida[1:])  # Calcula a porta da estação ativa
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+                    try:
+                        client_socket.connect(('127.0.0.1', middleware_port))
+                        client_socket.sendall(original_message.encode('utf-8'))
+                        response = client_socket.recv(1024).decode('utf-8')
+                        print(f"[{estacao_escolhida}] Response: {response}")
+                        return response
+                    except ConnectionRefusedError:
+                        print(f"Falha ao conectar à estação ativa {estacao_escolhida}")
+                        return f"Falha ao redirecionar para a estação ativa {estacao_escolhida}."
+            else:
+                return "Nenhuma estação ativa disponível."
+        else:
+            return "Erro ao buscar estações ativas."
+
 
     def obter_estacoes_ativas(self):
         # Consulta o middleware para obter a lista de estações ativas

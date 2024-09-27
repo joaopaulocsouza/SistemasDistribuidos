@@ -19,24 +19,37 @@ class Middleware:
             'ativo': ativo,
             'carros': []
         }
+        print(f"Estação adicionada: {estacao_id}")  # Log de verificação
         # Ao adicionar a estação, envia as informações para o gerente.
         self.atualizar_gerente(estacao_id)
 
     def ativar_estacao(self, estacao_id):
         if estacao_id in self.estacoes:
             self.estacoes[estacao_id]['ativo'] = True
-            print(f"Estação {estacao_id} ativada.")
+            print(f"Estação {estacao_id} ativada.")  # Log de ativação
             # Atualiza o gerente sobre o status da estação
             self.atualizar_gerente(estacao_id)
 
-    def redirecionar_requisicao(self, estacao_id):
+    def redirecionar_requisicao(self, original_message):
+        print("Redirecionar requisição chamada")  # Log inicial
         # Encontra a primeira estação ativa para redirecionar a requisição
         for eid, info in self.estacoes.items():
             if info['ativo']:
-                return f"Redirecionado para estação ativa {eid}."
+                middleware_port = info['port']
+                print(f"Redirecionando para estação ativa {eid} na porta {middleware_port}")  # Log de redirecionamento
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+                    try:
+                        client_socket.connect(('127.0.0.1', middleware_port))
+                        client_socket.sendall(original_message.encode('utf-8'))
+                        response = client_socket.recv(1024).decode('utf-8')
+                        print(f"Resposta da estação ativa {eid}: {response}")  # Log de resposta
+                        return response
+                    except ConnectionRefusedError:
+                        print(f"Falha ao conectar à estação ativa {eid}")
         return "Nenhuma estação ativa disponível."
 
     def start_server(self):
+        print(f"Iniciando servidor middleware na porta {self.middleware_port}")  # Log de início
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         
         try:
@@ -46,60 +59,83 @@ class Middleware:
             return
         server_socket.listen(5)
         print(f"Middleware da estação {self.estacao_id} escutando na porta {self.middleware_port}...")
-        
-        # Ativa a estação E1 automaticamente ao iniciar o middleware
-        if self.estacao_id == 'E1':
+
+        if self.estacao_id == 'E1':  # Ativação automática para teste
             self.ativar_estacao('E1')
 
         while True:
             conn, addr = server_socket.accept()
-            message = conn.recv(1024).decode('utf-8')
-            print(f"Middleware {self.estacao_id} recebeu: {message}")
+            try:
+                message = conn.recv(1024).decode('utf-8')
+                print(f"M[{self.estacao_id}] recebeu: {message}")  # Log de recebimento
 
-            if "ACTIVATE" in message:
-                estacao_id = message.split()[1]
-                self.ativar_estacao(estacao_id)
-                response = f"Estação {estacao_id} ativada com sucesso."
-            
-            elif "REDIRECT" in message:
-                estacao_id = message.split()[1]
-                response = self.redirecionar_requisicao(estacao_id)
+                if "ACTIVATE" in message:
+                    estacao_id = message.split()[1]
+                    self.ativar_estacao(estacao_id)
+                    response = f"Estação {estacao_id} ativada com sucesso."
 
-            elif "ENTRADA" in message:
-                carro_id = message.split()[2]
-                self.estacoes[self.estacao_id]['vagas_ocupadas'] += 1
-                self.estacoes[self.estacao_id]['carros'].append(carro_id)
-                print(f"Carro {carro_id} entrou na estação {self.estacao_id}. Vagas ocupadas: {self.estacoes[self.estacao_id]['vagas_ocupadas']}.")
-                self.atualizar_gerente_carro('entrada', carro_id)
+                elif "CHECK" in message:
+                    carro_id = message.split()[1]
+                    if carro_id in self.estacoes[self.estacao_id]['carros']:
+                        response = "FOUND"
+                    else:
+                        response = "NOT FOUND"
+                elif "REMOVE" in message:
+                    carro_id = message.split()[1]
+                    if carro_id in self.estacoes[self.estacao_id]['carros']:
+                        self.estacoes[self.estacao_id]['vagas_ocupadas'] -= 1
+                        self.estacoes[self.estacao_id]['carros'].remove(carro_id)
+                        print(f"Carro {carro_id} removido da estação {self.estacao_id}. Vagas ocupadas: {self.estacoes[self.estacao_id]['vagas_ocupadas']}.")
+                        self.atualizar_gerente_carro('saida', carro_id)
+                        response = f"Carro {carro_id} removido da estação {self.estacao_id}."
+                    else:
+                        response = f"Carro {carro_id} não encontrado na estação {self.estacao_id}."
 
-            elif "LIST" in message:
-                # Gera a lista de estações ativas
-                estacoes_ativas = [eid for eid, info in self.estacoes.items() if info['ativo']]
-                response = f"Estações ativas: {', '.join(estacoes_ativas)}" if estacoes_ativas else "Nenhuma estação ativa"
-            
-            elif "CHECK" in message:
-                carro_id = message.split()[1]
-                if carro_id in self.estacoes[self.estacao_id]['carros']:
-                    response = "FOUND"
+
+                elif "REDIRECT" in message:
+                    print(f"Redirecionando requisição: {message}")  # Log para debug de redirecionamento
+                    response = self.redirecionar_requisicao(message)
+
+                elif "ENTRADA" in message:
+                    carro_id = message.split()[2]
+                    self.estacoes[self.estacao_id]['vagas_ocupadas'] += 1
+                    self.estacoes[self.estacao_id]['carros'].append(carro_id)
+                    print(f"Carro {carro_id} entrou na estação {self.estacao_id}. Vagas ocupadas: {self.estacoes[self.estacao_id]['vagas_ocupadas']}.")
+                    self.atualizar_gerente_carro('entrada', carro_id)
+
+                elif "LIST" in message:
+                    self.verificar_estacoes_ativas()
+                    estacoes_ativas = [eid for eid, info in self.estacoes.items() if info['ativo']]
+                    response = f"Estações ativas: {', '.join(estacoes_ativas)}" if estacoes_ativas else "Nenhuma estação ativa"
+
+                elif "RV" in message or "LV" in message:
+                    # Envia a mensagem para o app correspondente
+                    app_port = self.estacoes[self.estacao_id]['port']
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as app_socket:
+                        try:
+                            app_socket.connect(('127.0.0.1', app_port))
+                            app_socket.sendall(message.encode('utf-8'))
+                            response = app_socket.recv(1024).decode('utf-8')
+                            print(f"Resposta do app: {response}")
+                        except ConnectionRefusedError:
+                            print(f"Falha ao conectar ao app da estação {self.estacao_id}")
+
                 else:
-                    response = "NOT FOUND"
+                    response = f"Comando desconhecido ({message})\n"
 
-            elif "REMOVE" in message:
-                carro_id = message.split()[1]
-                if carro_id in self.estacoes[self.estacao_id]['carros']:
-                    self.estacoes[self.estacao_id]['vagas_ocupadas'] -= 1
-                    self.estacoes[self.estacao_id]['carros'].remove(carro_id)
-                    print(f"Carro {carro_id} removido da estação {self.estacao_id}. Vagas ocupadas: {self.estacoes[self.estacao_id]['vagas_ocupadas']}.")
-                    self.atualizar_gerente_carro('saida', carro_id)
-                    response = f"Carro {carro_id} removido da estação {self.estacao_id}."
-                else:
-                    response = f"Carro {carro_id} não encontrado na estação {self.estacao_id}."
+                conn.sendall(response.encode('utf-8'))
 
+            except Exception as e:
+                print(f"Erro ao processar a mensagem: {e}")
+            finally:
+                conn.close()
+
+    def verificar_estacoes_ativas(self):
+        for estacao_id, info in self.estacoes.items():
+            if not info['ativo']:
+                print(f"Verificação: Estação {estacao_id} está inativa.")
             else:
-                response = "Comando desconhecido."
-
-            conn.sendall(response.encode('utf-8'))
-            conn.close()
+                print(f"Verificação: Estação {estacao_id} está ativa.")
 
     def atualizar_gerente(self, estacao_id):
         estacao = self.estacoes[estacao_id]
@@ -109,7 +145,6 @@ class Middleware:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
             try:
                 client_socket.connect((self.gerente_host, self.gerente_port))
-                print(f"Middleware da estação {estacao_id} conectou-se ao Gerente.")  # Mensagem informando a conexão
                 client_socket.sendall(mensagem.encode('utf-8'))
                 response = client_socket.recv(1024).decode('utf-8')
                 print(f"Gerente resposta: {response}")
@@ -136,11 +171,7 @@ def inicializar_estacoes():
         estacao_id = f'E{i}'
         middleware_port = 9000 + i  # Porta única para cada middleware
         middleware_instance = Middleware(estacao_id, gerente_host, gerente_port, middleware_port)
-
-        # Adicionando a estação como inativa
         middleware_instance.adicionar_estacao(estacao_id, '127.0.0.1', 3000 + i, 10, False)
-
-        # Inicia o middleware em uma thread separada
         threading.Thread(target=middleware_instance.start_server).start()
 
 # Chama a função para iniciar os middlewares
