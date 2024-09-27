@@ -46,6 +46,7 @@ class Gerente:
                 carros = json.loads(carros_str)  # Usa json para carregar a lista de carros
                 self.atualizar_estacao(estacao_id, status, vagas, vagas_ocupadas, carros)
                 response = f"Estação {estacao_id} atualizada."
+            
             elif "STATUS" in message:
                 response = self.obter_status_estacoes()
             else:

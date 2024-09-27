@@ -19,37 +19,35 @@ class Middleware:
             'ativo': ativo,
             'carros': []
         }
-        print(f"Estação adicionada: {estacao_id}")  # Log de verificação
-        # Ao adicionar a estação, envia as informações para o gerente.
+        print(f"Estação adicionada: {estacao_id}")
         self.atualizar_gerente(estacao_id)
 
     def ativar_estacao(self, estacao_id):
         if estacao_id in self.estacoes:
             self.estacoes[estacao_id]['ativo'] = True
-            print(f"Estação {estacao_id} ativada.")  # Log de ativação
-            # Atualiza o gerente sobre o status da estação
+            print(f"[{estacao_id}] Ativada!\n")
             self.atualizar_gerente(estacao_id)
 
     def redirecionar_requisicao(self, original_message):
-        print("Redirecionar requisição chamada")  # Log inicial
+        print("Redirecionar requisição chamada")
         # Encontra a primeira estação ativa para redirecionar a requisição
         for eid, info in self.estacoes.items():
             if info['ativo']:
                 middleware_port = info['port']
-                print(f"Redirecionando para estação ativa {eid} na porta {middleware_port}")  # Log de redirecionamento
+                print(f"Redirecionando para estação ativa {eid} na porta {middleware_port}")
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
                     try:
                         client_socket.connect(('127.0.0.1', middleware_port))
                         client_socket.sendall(original_message.encode('utf-8'))
                         response = client_socket.recv(1024).decode('utf-8')
-                        print(f"Resposta da estação ativa {eid}: {response}")  # Log de resposta
+                        print(f"Resposta da estação ativa {eid}: {response}")
                         return response
                     except ConnectionRefusedError:
                         print(f"Falha ao conectar à estação ativa {eid}")
         return "Nenhuma estação ativa disponível."
 
     def start_server(self):
-        print(f"Iniciando servidor middleware na porta {self.middleware_port}")  # Log de início
+        print(f"Iniciando servidor middleware na porta {self.middleware_port}")
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         
         try:
@@ -60,19 +58,19 @@ class Middleware:
         server_socket.listen(5)
         print(f"Middleware da estação {self.estacao_id} escutando na porta {self.middleware_port}...")
 
-        if self.estacao_id == 'E1':  # Ativação automática para teste
+        if self.estacao_id == 'E1':
             self.ativar_estacao('E1')
 
         while True:
             conn, addr = server_socket.accept()
             try:
                 message = conn.recv(1024).decode('utf-8')
-                print(f"M[{self.estacao_id}] recebeu: {message}")  # Log de recebimento
+                print(f"M[{self.estacao_id}] recebeu: {message}")
 
                 if "ACTIVATE" in message:
                     estacao_id = message.split()[1]
                     self.ativar_estacao(estacao_id)
-                    response = f"Estação {estacao_id} ativada com sucesso."
+                    response = f"[{estacao_id}] Ativada com sucesso!"
 
                 elif "CHECK" in message:
                     carro_id = message.split()[1]
@@ -80,6 +78,7 @@ class Middleware:
                         response = "FOUND"
                     else:
                         response = "NOT FOUND"
+                
                 elif "REMOVE" in message:
                     carro_id = message.split()[1]
                     if carro_id in self.estacoes[self.estacao_id]['carros']:
@@ -91,9 +90,8 @@ class Middleware:
                     else:
                         response = f"Carro {carro_id} não encontrado na estação {self.estacao_id}."
 
-
                 elif "REDIRECT" in message:
-                    print(f"Redirecionando requisição: {message}")  # Log para debug de redirecionamento
+                    print(f"Redirecionando requisição: {message}")
                     response = self.redirecionar_requisicao(message)
 
                 elif "ENTRADA" in message:
@@ -103,22 +101,31 @@ class Middleware:
                     print(f"Carro {carro_id} entrou na estação {self.estacao_id}. Vagas ocupadas: {self.estacoes[self.estacao_id]['vagas_ocupadas']}.")
                     self.atualizar_gerente_carro('entrada', carro_id)
 
+                if "STATUS" in message:
+                    estacao_id = message.split()[1]  # Extrai o ID da estação da mensagem
+                    # Verifica se a estação solicitada é ativa ou inativa
+                    if estacao_id in self.estacoes and self.estacoes[estacao_id]['ativo']:
+                        response = f"Ativa"
+                    else:
+                        response = f"Inativa"
+                    print(f"{response}")
+
                 elif "LIST" in message:
-                    self.verificar_estacoes_ativas()
-                    estacoes_ativas = [eid for eid, info in self.estacoes.items() if info['ativo']]
+                    # Verifica as estações ativas e retorna a lista diretamente
+                    estacoes_ativas = self.verificar_estacoes_ativas()
+                    print(f"ESTA:{estacoes_ativas}\n")
                     response = f"Estações ativas: {', '.join(estacoes_ativas)}" if estacoes_ativas else "Nenhuma estação ativa"
 
                 elif "RV" in message or "LV" in message:
-                    # Envia a mensagem para o app correspondente
-                    app_port = self.estacoes[self.estacao_id]['port']
-                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as app_socket:
-                        try:
-                            app_socket.connect(('127.0.0.1', app_port))
-                            app_socket.sendall(message.encode('utf-8'))
-                            response = app_socket.recv(1024).decode('utf-8')
-                            print(f"Resposta do app: {response}")
-                        except ConnectionRefusedError:
-                            print(f"Falha ao conectar ao app da estação {self.estacao_id}")
+                    print(f"MM: {message} ")
+                    # Se a estação está ativa, realiza o processo
+                    if self.estacoes[self.estacao_id]['ativo']:
+                        app_port = self.estacoes[self.estacao_id]['port']
+                        response = self.enviar_mensagem_app(message, app_port)
+                    else:
+                        # Se a estação está inativa, redireciona para uma estação ativa
+                        print(f"[{self.estacao_id}] INATIVA! Redirecionando requisição de {message}\n")
+                        response = self.redirecionar_requisicao(message)
 
                 else:
                     response = f"Comando desconhecido ({message})\n"
@@ -130,12 +137,52 @@ class Middleware:
             finally:
                 conn.close()
 
+    def enviar_mensagem_app(self, mensagem, app_port):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as app_socket:
+                app_socket.connect(('127.0.0.1', app_port))
+                app_socket.sendall(mensagem.encode('utf-8'))
+                response = app_socket.recv(1024).decode('utf-8')
+                print(f"Resposta do app: {response}")
+                return response
+        except ConnectionRefusedError:
+            print(f"Falha ao conectar ao app da estação {self.estacao_id}")
+            return "Erro: Falha ao conectar ao app da estação"
+
     def verificar_estacoes_ativas(self):
-        for estacao_id, info in self.estacoes.items():
-            if not info['ativo']:
-                print(f"Verificação: Estação {estacao_id} está inativa.")
+        estacoes_ativas = []
+
+        # Supondo que temos 10 middlewares e suas portas estão de 9000 até 9009
+        for i in range(10):
+            estacao_id = f'E{i}'
+            middleware_port = 9000 + i
+
+           
+            # Se a estação for a própria estação, verifica diretamente
+            if estacao_id == self.estacao_id:
+                if self.estacoes[self.estacao_id]['ativo']:
+                    estacoes_ativas.append(estacao_id)
+                    print(f"Verificação: [{estacao_id}] ativa (própria estação).")
             else:
-                print(f"Verificação: Estação {estacao_id} está ativa.")
+                # Tenta se conectar a outras estações
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+                    try:
+                        client_socket.connect(('127.0.0.1', middleware_port))
+                        client_socket.sendall(f"STATUS {estacao_id}".encode('utf-8'))
+                        response = client_socket.recv(1024).decode('utf-8')
+                        # print(f"[XX{self.estacao_id}] {response}")
+                        if "Ativa" in response:  # Supondo que o middleware responde com 'ativa' ou 'inativa'
+                            estacoes_ativas.append(estacao_id)
+                            # print(f"Estação [{estacao_id}] está ativa. Resposta: {response}")
+                        # else:
+                            # print(f"Estação [{estacao_id}] está inativa. Resposta: {response}")
+                    except ConnectionRefusedError:
+                        print(f"Falha ao conectar ao middleware da estação {estacao_id}.")
+
+        print()
+        return estacoes_ativas
+
+
 
     def atualizar_gerente(self, estacao_id):
         estacao = self.estacoes[estacao_id]
@@ -171,7 +218,11 @@ def inicializar_estacoes():
         estacao_id = f'E{i}'
         middleware_port = 9000 + i  # Porta única para cada middleware
         middleware_instance = Middleware(estacao_id, gerente_host, gerente_port, middleware_port)
+
+        # Adicionando a estação como inativa
         middleware_instance.adicionar_estacao(estacao_id, '127.0.0.1', 3000 + i, 10, False)
+
+        # Inicia o middleware em uma thread separada
         threading.Thread(target=middleware_instance.start_server).start()
 
 # Chama a função para iniciar os middlewares
