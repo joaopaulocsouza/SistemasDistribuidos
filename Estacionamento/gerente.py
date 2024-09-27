@@ -34,7 +34,7 @@ class Gerente:
         try:
             message = conn.recv(4096).decode('utf-8')
             print(f"Gerente recebeu: {message}")
-
+            
             if "ATUALIZAR" in message:
                 # Ajusta o split para considerar espaços em dados com listas
                 dados = message.split(' ', 5)
