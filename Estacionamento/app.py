@@ -52,10 +52,11 @@ class MiddlewareApp:
                 response = self.requisitar_vaga(carro_id)
             elif tipo == "LV":
                 response = self.liberar_vaga(carro_id)
-            print(f"Processando {tipo} para o carro [{carro_id}] na estação [{self.estacao_id}]")
+            
+            # print(f"Processando {tipo} para o carro [{carro_id}] na estação [{self.estacao_id}]")
             return response
         else:
-            # Se a estação está inativa, redireciona para uma estação ativa
+        #     # Se a estação está inativa, redireciona para uma estação ativa
             print(f"Estação {self.estacao_id} está inativa. Redirecionando {tipo} para uma estação ativa.")
             return self.redirecionar_requisicao(message)
 
@@ -67,9 +68,19 @@ class MiddlewareApp:
         if self.vagas_ocupadas < self.vagas:
             self.vagas_ocupadas += 1
             self.carros_estacionados.append(carro_id)  # Adiciona o ID do carro à lista de carros estacionados
+
+            # Envia uma mensagem ao middleware para atualizar os carros e vagas ocupadas
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+                client_socket.connect((self.middleware_host, self.middleware_port))
+                mensagem = f"ENTRADA {self.estacao_id} {carro_id}"
+                client_socket.sendall(mensagem.encode('utf-8'))
+                response = client_socket.recv(1024).decode('utf-8')
+                print(f"Middleware resposta: {response}")
+
             return f"Vaga ocupada pelo carro {carro_id}. Total ocupadas: {self.vagas_ocupadas}."
         else:
             return "Sem vagas disponíveis."
+
 
     def liberar_vaga(self, carro_id):
         # Verifica se o carro está na própria estação
@@ -82,25 +93,29 @@ class MiddlewareApp:
         # Caso o carro não esteja na estação, verificar nas outras estações
         else:
             print(f"Carro {carro_id} não encontrado na estação {self.estacao_id}. Verificando outras estações...")
+            
             estacao_encontrada = self.buscar_carro_em_outras_estacoes(carro_id)
+            
             if estacao_encontrada:
                 return f"Carro [{carro_id}] removido da estação [{estacao_encontrada}]."
             else:
                 return f"Carro [{carro_id}] não encontrado em nenhuma estação."
 
     def buscar_carro_em_outras_estacoes(self, carro_id):
+        
         # Verifica em outras estações se o carro está estacionado
         for i in range(10):  # Supondo que há 10 estações
             if f"E{i}" == self.estacao_id:
                 continue  # Pula a estação atual
 
             middleware_port = 9000 + i  # Porta do middleware da estação
+            
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
                 try:
                     client_socket.connect(('127.0.0.1', middleware_port))
                     client_socket.sendall(f"CHECK {carro_id}".encode('utf-8'))
                     response = client_socket.recv(1024).decode('utf-8')
-
+                    # print(f"CKECH RESPONSE: {response}")
                     if "FOUND" in response:
                         # Carro encontrado, solicitar remoção
                         client_socket.sendall(f"REMOVE {carro_id}".encode('utf-8'))
