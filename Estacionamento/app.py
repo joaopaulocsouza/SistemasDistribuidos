@@ -28,11 +28,20 @@ class MiddlewareApp:
             if "AE" in message:
                 # Ativa a própria estação ao receber "AE"
                 self.ativar_estacao()
-                response = f"[{self.estacao_id}] Ativada!"
                 self.comunicar_middleware_ativacao()
+                response = f"[{self.estacao_id}] Ativada!"
             
+            elif "FE" in message:
+                # Desativa a estação ao receber "FE"
+                self.desativar_estacao()
+                self.comunicar_middleware_desativacao()
+                response = f"[{self.estacao_id}] Desativada!"
             elif "STATUS" in message:
                 response = f"Estação {self.estacao_id} está {'ativa' if self.ativo else 'inativa'}."
+            
+            elif "VD" in message:
+                # Processa o pedido de "Vagas Disponíveis"
+                response = self.obter_vagas_disponiveis_middleware()
 
             else:
                 # Verifica se é uma requisição "RV" ou "LV" antes de processar
@@ -43,6 +52,17 @@ class MiddlewareApp:
 
             conn.sendall(response.encode('utf-8'))
             conn.close()
+
+    def obter_vagas_disponiveis_middleware(self):
+        # Envia a mensagem "VD" para o middleware e aguarda a resposta
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+            try:
+                client_socket.connect((self.middleware_host, self.middleware_port))
+                client_socket.sendall(f"VD {self.estacao_id}".encode('utf-8'))  # Envia "VD" para o middleware
+                response = client_socket.recv(4096).decode('utf-8')  # Recebe a resposta do middleware
+                return response
+            except ConnectionRefusedError:
+                return "Falha ao se comunicar com o middleware."
 
     def processar_requisicao(self, tipo, message):
         # Se a estação é ativa, processa normalmente
@@ -59,10 +79,14 @@ class MiddlewareApp:
         #     # Se a estação está inativa, redireciona para uma estação ativa
             print(f"Estação {self.estacao_id} está inativa. Redirecionando {tipo} para uma estação ativa.")
             return self.redirecionar_requisicao(message)
-
+    
     def ativar_estacao(self):
         self.ativo = True
         print(f"[{self.estacao_id}] Ativada !")
+
+    def desativar_estacao(self):
+        self.ativo = False
+        print(f"[{self.estacao_id}] Desativada !")
 
     def requisitar_vaga(self, carro_id):
         if self.vagas_ocupadas < self.vagas:
@@ -132,6 +156,14 @@ class MiddlewareApp:
             client_socket.sendall(f"ACTIVATE {self.estacao_id}".encode('utf-8'))
             response = client_socket.recv(1024).decode('utf-8')
             print(f"Middleware resposta: {response}")
+    
+    def comunicar_middleware_desativacao(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+            client_socket.connect((self.middleware_host, self.middleware_port))
+            client_socket.sendall(f"INATIVATE {self.estacao_id}".encode('utf-8'))
+            response = client_socket.recv(1024).decode('utf-8')
+            print(f"Middleware resposta: {response}")
+
 
     def redirecionar_requisicao(self, original_message):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:

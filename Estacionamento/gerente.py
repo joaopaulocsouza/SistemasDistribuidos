@@ -29,7 +29,11 @@ class Gerente:
         while True:
             conn, addr = server_socket.accept()
             threading.Thread(target=self.handle_connection, args=(conn,)).start()
-
+            
+    def obter_todas_informacoes_estacoes(self):
+        """Função que retorna todas as informações das estações no formato de dicionário."""
+        return self.estacoes  # Retorna o dicionário completo das estações
+        
     def handle_connection(self, conn):
         try:
             message = conn.recv(4096).decode('utf-8')
@@ -49,6 +53,12 @@ class Gerente:
             
             elif "STATUS" in message:
                 response = self.obter_status_estacoes()
+
+            elif "INFO" in message:
+                # Retorna todas as informações das estações
+                estacoes_info = self.obter_todas_informacoes_estacoes()
+                response = json.dumps(estacoes_info, indent=4)
+            
             else:
                 response = "Comando desconhecido."
 
@@ -59,8 +69,8 @@ class Gerente:
             conn.close()
 
 def obter_status_estacoes(self):
-    return json.dumps(self.estacoes, indent=4)
-
+        return json.dumps(self.estacoes, indent=4)
+        
 # Iniciando o Gerente
 if __name__ == "__main__":
     gerente = Gerente('127.0.0.1', 5000)

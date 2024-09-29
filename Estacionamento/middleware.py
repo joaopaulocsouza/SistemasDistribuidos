@@ -28,6 +28,12 @@ class Middleware:
             self.estacoes[estacao_id]['ativo'] = True
             print(f"[{estacao_id}] Ativada!\n")
             self.atualizar_gerente(estacao_id)
+    
+    def desativar_estacao(self, estacao_id):
+        if estacao_id in self.estacoes:
+            self.estacoes[estacao_id]['ativo'] = False
+            print(f"[{estacao_id}] Desativada!\n")
+            self.atualizar_gerente(estacao_id)
 
     def redirecionar_requisicao(self, original_message):
         print("Redirecionar requisição chamada")
@@ -72,7 +78,12 @@ class Middleware:
                     estacao_id = message.split()[1]
                     self.ativar_estacao(estacao_id)
                     response = f"[{estacao_id}] Ativada com sucesso!"
-
+                
+                elif "ACTIVATE" in message:
+                    estacao_id = message.split()[1]
+                    self.desativar_estacao(estacao_id)
+                    response = f"[{estacao_id}] Desativada com sucesso!"
+                
                 elif "CHECK" in message:
                     carro_id = message.split()[1]
                     # print(f"Carro[{carro_id}] em {self.estacao_id} ?\n")
@@ -122,7 +133,10 @@ class Middleware:
                     estacoes_ativas = self.verificar_estacoes_ativas()
                     print(f"LIST Estações Ativas: [{estacoes_ativas}]\n")
                     response = f"Estações ativas: {', '.join(estacoes_ativas)}" if estacoes_ativas else "Nenhuma estação ativa"
-
+                
+                elif "VD" in message:
+                    response = self.obter_vagas_disponiveis()
+                    
                 elif "RV" in message or "LV" in message:
                     print(f"MM: {message} ")
                     # Se a estação está ativa, realiza o processo
@@ -143,6 +157,45 @@ class Middleware:
                 print(f"Erro ao processar a mensagem: {e}")
             finally:
                 conn.close()
+
+    def obter_vagas_disponiveis(self):
+        # Conectando ao gerente para solicitar todas as informações das estações
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+                # Conectar ao gerente
+                client_socket.connect((self.gerente_host, self.gerente_port))
+                
+                # Solicita todas as informações das estações ativas ao gerente
+                client_socket.sendall("INFO".encode('utf-8'))  
+                
+                # Recebe a resposta do gerente
+                data = []
+                while True:
+                    packet = client_socket.recv(4096).decode('utf-8')
+                    if not packet:  # Se não há mais dados para receber, termina o loop
+                        break
+                    data.append(packet)
+                    
+                response = ''.join(data)  # Junta todos os pacotes recebidos
+                estacoes_info = json.loads(response)  # Converte o JSON para um dicionário
+                
+                lista_vagas = []
+                for estacao_id, info in estacoes_info.items():
+                    if info['status'] == 'ATIVA':
+                        total_vagas = info['vagas']
+                        vagas_ocupadas = info['vagas_ocupadas']
+                        vagas_livres = total_vagas - vagas_ocupadas
+                        lista_vagas.append(f"{estacao_id}:{vagas_livres}-{vagas_ocupadas}")
+                
+                # Retorna a mensagem com o código "AV" e a lista de vagas
+                return f"AV {' '.join(lista_vagas)}"
+        
+        except ConnectionRefusedError:
+            return "Erro: Não foi possível conectar ao Gerente."
+        except Exception as e:
+            return f"Erro: {e}"
+
+
 
     def enviar_mensagem_app(self, mensagem, app_port):
         try:
