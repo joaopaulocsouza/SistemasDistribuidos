@@ -42,23 +42,49 @@ class Gerente:
                 print(e)
         semaforo.release()
 
-    def remove_con_ring(self, port):
+    def remove_con_ring(self, conn, port):
         global ring
         semaforo.acquire()
-        if(len(ring) == 1):
-            ring.pop()
-        else:
-            for i in range(len(ring)):
-                if ring[i][1] == port:
-                    if i == 0:
-                        self.send_message(ring[len(ring)-1][1], f"NEXT {[1][1]}")
-                    elif i == len(ring)-1:
-                        self.send_message(ring[len(ring)-2][0], f"NEXT {ring[0][1]}")
-                    else:
-                        self.send_message(ring[i+1][0], f"NEXT {ring[i-1][1]}")
+        try:
+            # Verifica se a conexão está no anel
+            for i, node in enumerate(ring):
+                if node[1] == [conn, port]:
+                    print(f"Removendo conexão {port} do anel")
+                    
+                    # Se for o único nó, apenas remove
+                    if len(ring) == 1:
+                        ring.pop(i)
+                        print("Anel vazio após a remoção")
+                        semaforo.release()
+                        return
+                    
+                    # Caso o nó removido não seja o único
+                    prev_node = ring[i-1]
+                    next_node = ring[(i+1) % len(ring)] if i < len(ring)-1 else ring[0]
+
+                    # Informa os nós vizinhos para atualizar a referência
+                    self.send_message(prev_node[0], f"NEXT {next_node[1]}")
+                    
+                    # Remove o nó do anel
                     ring.pop(i)
+                    
+                    # Inicia processo de eleição
+                    self.start_election()
+
                     break
+            else:
+                print("Conexão não encontrada no anel")
+        except Exception as e:
+            print(e)
         semaforo.release()
+
+    def start_election(self):
+        print("Iniciando processo de eleição")
+        # Aqui você pode implementar o algoritmo de eleição apropriado
+        # Por exemplo, enviar uma mensagem de eleição para todos os nós
+        if len(ring) > 0:
+            for node in ring:
+                self.send_message(node[0], "ELEICAO")
 
     def obter_status_estacoes(self):
         return json.dumps(self.estacoes, indent=4)

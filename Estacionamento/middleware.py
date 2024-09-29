@@ -347,17 +347,17 @@ class Middleware:
             print(self.middleware_port," Conexao: ", self.next_conn)
             
             # while True:
-            #     self.next_conn.send(mensagem.encode('utf-8'))
-            #     self.next_ping = True
-                # time.sleep(3)
-                # if not self.next_ping:
-                #     print(f"Conexão com o middleware {host}:{port} perdida.")
-                #     self.next_ping = False
-                #     break
-                # else: 
-                #     self.send_message(self.next_conn, "ELEICAO")
-                #     self.next_ping = False
-                #     print(f"Conexão com o middleware {host}:{port} OK.")
+            self.next_conn.send(mensagem.encode('utf-8'))
+            self.next_ping = True
+            time.sleep(3)
+            if not self.next_ping:
+                print(f"Conexão com o middleware {host}:{port} perdida.")
+                self.next_ping = False
+                # break
+            else: 
+                self.send_message(self.next_conn, "ELEICAO")
+                self.next_ping = False
+                print(f"Conexão com o middleware {host}:{port} OK.")
                 
 
             # Iniciar a thread de atualização periódica para o novo middleware
