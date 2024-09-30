@@ -3,9 +3,6 @@ import threading
 import json
 import time
 
-ring = [] 
-semaforo = threading.Semaphore(1)
-
 class Middleware:
     def __init__(self, estacao_id, gerente_host, gerente_port, middleware_port):
         self.estacao_id = estacao_id
@@ -14,24 +11,14 @@ class Middleware:
         self.gerente_port = gerente_port
         self.middleware_port = middleware_port  # Porta única para cada middleware
         self.vagas_ocupadas = 0
-        self.vagas_ocupadas = 0        
-          
-        self.conexoes = []
         
-        self.next_middleware = None
-        self.next_ativo = False
-        self.next_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.next_ping = False
-        
-    def send_message(self, conn, message):
-        """Função para enviar mensagens de forma segura entre threads."""
-        semaforo.acquire()
-        try:
-            conn.send(f'{message}\n'.encode('utf-8'))
-        except Exception as e:
-            print(f"Erro ao enviar mensagem: {e}")
-        finally:
-            semaforo.release()
+        # Configurções anel de middleware
+        self.port = middleware_port+1000
+        self.next_port = None
+        self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.next_conn = None
+        self.ativo = False
+        self.proxima_ativa = False
 
     def adicionar_estacao(self, estacao_id, host, port, vagas, ativo):
         self.estacoes[estacao_id] = {
@@ -43,18 +30,31 @@ class Middleware:
             'carros': []
         }
         print(f"Estação adicionada: {estacao_id}")
+        self.atualizar_gerente(estacao_id)
+        
+    def send_message(self, conn, message):
+        try:
+            conn.send(f'{message}'.encode('utf-8'))
+        except Exception as e:
+            print(f"Erro ao enviar mensagem: {e}")
 
     def ativar_estacao(self, estacao_id):
         if estacao_id in self.estacoes:
             self.estacoes[estacao_id]['ativo'] = True
             print(f"[{estacao_id}] Ativada!\n")
             self.atualizar_gerente(estacao_id)
+            # Thread para receber mensagens da estação anterior
+            self.server_thread = threading.Thread(target=self.server_next)
+            self.server_thread.start()
+            
     
     def desativar_estacao(self, estacao_id):
         if estacao_id in self.estacoes:
             self.estacoes[estacao_id]['ativo'] = False
             print(f"[{estacao_id}] Desativada!\n")
             self.atualizar_gerente(estacao_id)
+            self.stop_server_next()
+            print(f"{self.estacao_id}: Desativando servidor...")
 
     def redirecionar_requisicao(self, original_message):
         print("Redirecionar requisição chamada")
@@ -75,7 +75,7 @@ class Middleware:
         return "Nenhuma estação ativa disponível."
 
     def start_server(self):
-        # print(f"Iniciando servidor middleware na porta {self.middleware_port}")
+        print(f"Iniciando servidor middleware na porta {self.middleware_port}")
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         
         try:
@@ -83,115 +83,104 @@ class Middleware:
         except OSError as e:
             print(f"Erro ao vincular middleware da estação {self.estacao_id} à porta {self.middleware_port}: {e}")
             return
-        server_socket.listen(15)
-        # print(f"Middleware da estação {self.estacao_id} escutando na porta {self.middleware_port}...")
+        server_socket.listen(5)
+        print(f"Middleware da estação {self.estacao_id} escutando na porta {self.middleware_port}...")
 
-        if self.estacao_id == 'E1' or self.estacao_id == 'E2':
-            self.ativar_estacao(self.estacao_id)
+        if self.estacao_id == 'E1':
+            self.ativar_estacao('E1')
 
-        data = b''
         while True:
             conn, addr = server_socket.accept()
-            self.conexoes.append(conn)
             try:
-                buffer = conn.recv(1024)
-                if not buffer:
-                    continue
-                data += buffer
+                message = conn.recv(1024).decode('utf-8')
+                print(f"M[{self.estacao_id}] recebeu: {message}")
+
+                if "ACTIVATE" in message:
+                    estacao_id = message.split()[1]
+                    self.ativar_estacao(estacao_id)
+                    response = f"[{estacao_id}] (ATIVADA)"
                 
-                while b'\n' in data:
-                    message, data = data.split(b'\n', 1)
-                    message = message.decode('utf-8')
-                    print(f"Middleware {self.estacao_id} recebeu: {message}")
-                    
-                    if "PING" in message:
-                        self.send_message(conn, "PONG")
-                        continue
-                    
-                    if "PONG" in message:
-                        self.next_ping = False
-                        continue
-                    print(f"M[{self.estacao_id}] recebeu: {message}")
+                elif "INATIVATE" in message:
+                    estacao_id = message.split()[1]
+                    self.desativar_estacao(estacao_id)
+                    response = f"[{estacao_id}] (INATIVADA)"
+                
+                elif "CHECK" in message:
+                    carro_id = message.split()[1]
+                    # print(f"Carro[{carro_id}] em {self.estacao_id} ?\n")
+                    # print(self.estacoes[self.estacao_id]['carros'])
+                    if carro_id in self.estacoes[self.estacao_id]['carros']:
+                        response = "FOUND"
+                    else:
+                        response = "NOT FOUND"
+                
+                elif "REDIRECT" in message:
+                    print(f"Redirecionando requisição: {message}")
+                    response = self.redirecionar_requisicao(message)
 
-                    if "ACTIVATE" in message:
-                        estacao_id = message.split()[1]
-                        self.ativar_estacao(estacao_id)
-                        response = f"[{estacao_id}] Ativada com sucesso!"
-                    
-                    elif "ACTIVATE" in message:
-                        estacao_id = message.split()[1]
-                        self.desativar_estacao(estacao_id)
-                        response = f"[{estacao_id}] Desativada com sucesso!"
-                    
-                    elif "CHECK" in message:
-                        carro_id = message.split()[1]
-                        # print(f"Carro[{carro_id}] em {self.estacao_id} ?\n")
-                        # print(self.estacoes[self.estacao_id]['carros'])
-                        if carro_id in self.estacoes[self.estacao_id]['carros']:
-                            response = "FOUND"
-                        else:
-                            response = "NOT FOUND"
-                    
-                    elif "REMOVE" in message:
-                        carro_id = message.split()[1]
-                        if carro_id in self.estacoes[self.estacao_id]['carros']:
-                            self.estacoes[self.estacao_id]['vagas_ocupadas'] -= 1
-                            self.estacoes[self.estacao_id]['carros'].remove(carro_id)
-                            print(f"Carro {carro_id} removido da estação {self.estacao_id}. Vagas ocupadas: {self.estacoes[self.estacao_id]['vagas_ocupadas']}.")
-                            self.atualizar_gerente_carro('saida', carro_id)
-                            response = f"Carro {carro_id} removido da estação {self.estacao_id}."
-                        else:
-                            response = f"Carro {carro_id} não encontrado na estação {self.estacao_id}."
+                elif "REMOVE" in message:
+                    carro_id = message.split()[1]
+                    if carro_id in self.estacoes[self.estacao_id]['carros']:
+                        self.estacoes[self.estacao_id]['vagas_ocupadas'] -= 1
+                        self.estacoes[self.estacao_id]['carros'].remove(carro_id)
+                        print(f"Carro {carro_id} removido da estação {self.estacao_id}. Vagas ocupadas: {self.estacoes[self.estacao_id]['vagas_ocupadas']}.")
+                        self.atualizar_gerente_carro('saida', carro_id)
+                        response = f"Carro {carro_id} removido da estação {self.estacao_id}."
+                    else:
+                        response = f"Carro {carro_id} não encontrado na estação {self.estacao_id}."
 
-                    elif "REDIRECT" in message:
-                        print(f"Redirecionando requisição: {message}")
+
+                elif "ENTRADA" in message:
+                    carro_id = message.split()[2]
+                    self.estacoes[self.estacao_id]['vagas_ocupadas'] += 1
+                    self.estacoes[self.estacao_id]['carros'].append(carro_id)
+                
+                    print(f"Carro {carro_id} entrou na estação {self.estacao_id}. Vagas ocupadas: {self.estacoes[self.estacao_id]['vagas_ocupadas']}.")
+                    # print(self.estacoes[self.estacao_id]['carros'])
+                    self.atualizar_gerente_carro('entrada', carro_id)
+                    response = f"Carro {carro_id} registrado na estação {self.estacao_id}. Vagas ocupadas: {self.estacoes[self.estacao_id]['vagas_ocupadas']}."
+
+                elif "STATUS" in message:
+                    estacao_id = message.split()[1]  # Extrai o ID da estação da mensagem
+                    # Verifica se a estação solicitada é ativa ou inativa
+                    if estacao_id in self.estacoes and self.estacoes[estacao_id]['ativo']:
+                        response = "Ativa"
+                    else:
+                        response = "Inativa"
+
+                    print(f"{response}")
+
+                elif "LIST" in message:
+                    # Verifica as estações ativas e retorna a lista diretamente
+                    estacoes_ativas = self.verificar_estacoes_ativas()
+                    print(f"LIST Estações Ativas: [{estacoes_ativas}]\n")
+                    response = f"Estações ativas: {', '.join(estacoes_ativas)}" if estacoes_ativas else "Nenhuma estação ativa"
+                
+                elif "VD" in message:
+                    response = self.obter_vagas_disponiveis()
+                    
+                elif "RV" in message or "LV" in message:
+                    print(f"MM: {message} ")
+                    # Se a estação está ativa, realiza o processo
+                    if self.estacoes[self.estacao_id]['ativo']:
+                        app_port = self.estacoes[self.estacao_id]['port']
+                        response = self.enviar_mensagem_app(message, app_port)
+                    else:
+                        # Se a estação está inativa, redireciona para uma estação ativa
+                        print(f"[{self.estacao_id}] (INATIVA) Redirecionando requisição de {message}\n")
                         response = self.redirecionar_requisicao(message)
 
-                    elif "ENTRADA" in message:
-                        carro_id = message.split()[2]
-                        self.estacoes[self.estacao_id]['vagas_ocupadas'] += 1
-                        self.estacoes[self.estacao_id]['carros'].append(carro_id)
-                    
-                        print(f"Carro {carro_id} entrou na estação {self.estacao_id}. Vagas ocupadas: {self.estacoes[self.estacao_id]['vagas_ocupadas']}.")
-                        # print(self.estacoes[self.estacao_id]['carros'])
-                        self.atualizar_gerente_carro('entrada', carro_id)
-                        response = f"Carro {carro_id} registrado na estação {self.estacao_id}. Vagas ocupadas: {self.estacoes[self.estacao_id]['vagas_ocupadas']}."
+                else:
+                    print(f"Comando desconhecido ({message})")
+                    response = f"Comando desconhecido ({message})\n"
 
-                    elif "STATUS" in message:
-                        estacao_id = message.split()[1]  # Extrai o ID da estação da mensagem
-                        # Verifica se a estação solicitada é ativa ou inativa
-                        if estacao_id in self.estacoes and self.estacoes[estacao_id]['ativo']:
-                            response = "Ativa"
-                        else:
-                            response = "Inativa"
-
-                        print(f"{response}")
-
-                    elif "LIST" in message:
-                        # Verifica as estações ativas e retorna a lista diretamente
-                        estacoes_ativas = self.verificar_estacoes_ativas()
-                        print(f"LIST Estações Ativas: [{estacoes_ativas}]\n")
-                        response = f"Estações ativas: {', '.join(estacoes_ativas)}" if estacoes_ativas else "Nenhuma estação ativa"
-                    
-                    elif "VD" in message:
-                        response = self.obter_vagas_disponiveis()
-                        
-                    elif "RV" in message or "LV" in message:
-                        print(f"MM: {message} ")
-                        # Se a estação está ativa, realiza o processo
-                        if self.estacoes[self.estacao_id]['ativo']:
-                            app_port = self.estacoes[self.estacao_id]['port']
-                            response = self.enviar_mensagem_app(message, app_port)
-                        else:
-                            # Se a estação está inativa, redireciona para uma estação ativa
-                            print(f"[{self.estacao_id}] INATIVA! Redirecionando requisição de {message}\n")
-                    
-                    self.send_message(conn, response)
+                conn.sendall(response.encode('utf-8'))
 
             except Exception as e:
-                print(f"Erro ao processar a mensagem: {e}")
+                print(f"Erro ao processar a mensagem {message} : {e}")
             finally:
                 conn.close()
+                
 
     def obter_vagas_disponiveis(self):
         # Conectando ao gerente para solicitar todas as informações das estações
@@ -201,7 +190,7 @@ class Middleware:
                 client_socket.connect((self.gerente_host, self.gerente_port))
                 
                 # Solicita todas as informações das estações ativas ao gerente
-                client_socket.sendall("INFO".encode('utf-8'))  
+                self.send_message(client_socket, "INFO")
                 
                 # Recebe a resposta do gerente
                 data = []
@@ -213,7 +202,7 @@ class Middleware:
                     
                 response = ''.join(data)  # Junta todos os pacotes recebidos
                 estacoes_info = json.loads(response)  # Converte o JSON para um dicionário
-                
+
                 lista_vagas = []
                 for estacao_id, info in estacoes_info.items():
                     if info['status'] == 'ATIVA':
@@ -230,8 +219,6 @@ class Middleware:
         except Exception as e:
             return f"Erro: {e}"
 
-
-
     def enviar_mensagem_app(self, mensagem, app_port):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as app_socket:
@@ -246,13 +233,13 @@ class Middleware:
 
     def verificar_estacoes_ativas(self):
         estacoes_ativas = []
-        print(f"[{self.estacao_id}] Consultando o gerente para obter a lista de estações ativas...")
+        print(f"M[{self.estacao_id}] Consultando o gerente para obter a lista de estações ativas...")
 
         # Conectando ao gerente para solicitar o status das estações
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
             try:
                 client_socket.connect((self.gerente_host, self.gerente_port))
-                client_socket.sendall(f"STATUS".encode('utf-8'))  # Solicitando status das estações
+                self.send_message(client_socket, "STATUS")  # Solicitando status das estações
 
                 response = client_socket.recv(4096).decode('utf-8')
                 estacoes_info = json.loads(response)  # Decodifica o JSON recebido
@@ -272,111 +259,172 @@ class Middleware:
         return estacoes_ativas
     
     def atualizar_gerente(self, estacao_id):
-        print("Atualizando gerente...")
         estacao = self.estacoes[estacao_id]
-        status = "ATIVA"
-        carros = str(estacao['carros'])
-        mensagem = f"ATUALIZAR {estacao_id} {status} {estacao['vagas']} {estacao['vagas_ocupadas']} {carros} {self.middleware_port}"
-       # Criar uma nova conexão socket
-        conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            conn.connect((self.gerente_host, self.gerente_port))
-            self.send_message(conn, mensagem)
-            # Iniciar uma thread para atualização periódica
-            threading.Thread(target=self.atualizar_gerente_periodicamente, args=(estacao_id, conn,)).start()
-        except Exception as e:
-            print(f"Não foi possível conectar ao Gerente na {self.gerente_host}:{self.gerente_port}")
-            return
+        status = "ATIVA" if estacao['ativo'] else "INATIVA"
         
+        # Transformar a lista de carros em formato JSON válido
+        carros = json.dumps(estacao['carros'])
         
-    def atualizar_gerente_periodicamente(self, estacao_id, conn):
-        data = None
-        while True:
+        # Montar a mensagem com o campo carros em JSON
+        mensagem = f"ATUALIZAR {estacao_id} {status} {estacao['vagas']} {estacao['vagas_ocupadas']} {carros} {self.port}"
+        
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
             try:
-                buffer = conn.recv(1024)
-                if not buffer:
-                    continue
-                if not data:
-                    data = buffer
-                data += buffer
-                while b'\n' in data:
-                    message, data = data.split(b'\n', 1)
-                    message = message.decode('utf-8')
-                    print(f"Middleware {self.estacao_id} recebeu: {message}")
+                client_socket.connect((self.gerente_host, self.gerente_port))
+                self.send_message(client_socket, mensagem)
+                response = client_socket.recv(1024).decode('utf-8')
+                print(f"Gerente resposta: {response}")
                 
-                    if "NEXT" in message:
-                        try:
-                            splited = message.split()
-                            if len(splited) < 2:
-                                print("Não há próxima estação")
-                                break
-                            port = int(splited[1])
-                            
-                            if self.next_ativo:
-                                self.next_conn.close()
-                                self.next_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                                self.next_ativo = False
-                                self.next_middleware.join()
-                                print(f"{self.estacao_id}: Thread anterior foi finalizada.")
-                            self.next_middleware = threading.Thread(target=self.verificar_conexao_periodicamente, args=('127.0.0.1', port, conn))
-                            self.next_middleware.start()
-                            
-                        except Exception as e:
-                            print(f"{self.estacao_id} {e}")
-                            pass
-
-                time.sleep(1)
-                # self.send_message(conn, mensagem)
-            except Exception as e:
-                # print(f"Não foi possível conectar ao Gerente na {self.gerente_host}:{self.gerente_port} - {e}")
-                conn.close()  # Fechar o socket em caso de erro
-
-
-    def verificar_conexao_periodicamente(self, host, port, conn):      
-        """
-        Verifica periodicamente a conexão com outro middleware.
-        """
-        print(f"Conectando ao middleware {host}:{port}...")
-        mensagem = f"PING {self.estacao_id}"
-
-        try:
-            
-            self.next_ativo = True
-            self.next_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.next_conn.connect((host, port))
-            print(self.middleware_port," Conexao: ", self.next_conn)
-            
-            # while True:
-            self.next_conn.send(mensagem.encode('utf-8'))
-            self.next_ping = True
-            time.sleep(3)
-            if not self.next_ping:
-                print(f"Conexão com o middleware {host}:{port} perdida.")
-                self.next_ping = False
-                # break
-            else: 
-                self.send_message(self.next_conn, "ELEICAO")
-                self.next_ping = False
-                print(f"Conexão com o middleware {host}:{port} OK.")
-                
-
-            # Iniciar a thread de atualização periódica para o novo middleware
-        except Exception as e:
-            print(f"Não foi possível conectar ao middleware na {host}:{port} {self.middleware_port} - {self.next_conn}")
-            conn.close()  # Fechar o socket em caso de erro
-            return
+                if response.startswith("UPDATE_NEXT"):
+                    # Atualiza a próxima estação no anel
+                    _, nome_proxima, ip_proxima, porta_proxima = response.split("#")
+                    self.ip_proximo = ip_proxima
+                    self.porta_proximo = int(porta_proxima)
+                    print(f"{self.nome}: Atualizando próxima estação para {nome_proxima} ({ip_proxima}:{porta_proxima})")
+                    self.connect_next_station() 
+            except ConnectionRefusedError:
+                print(f"Não foi possível conectar ao Gerente na {self.gerente_host}:{self.gerente_port}")
 
     def atualizar_gerente_carro(self, acao, carro_id):
         mensagem = f"{acao.upper()} {self.estacao_id} {carro_id} {self.estacoes[self.estacao_id]['vagas_ocupadas']}"
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
             try:
                 client_socket.connect((self.gerente_host, self.gerente_port))
-                client_socket.sendall(mensagem.encode('utf-8'))
+                self.send_message(client_socket, mensagem)
                 response = client_socket.recv(1024).decode('utf-8')
                 print(f"Gerente resposta: {response}")
             except ConnectionRefusedError:
                 print(f"Não foi possível conectar ao Gerente na {self.gerente_host}:{self.gerente_port}")
 
+    def verificar_conexao_proxima_estacao(self):
+        """Verifica periodicamente se a próxima estação no anel está ativa."""
+        while self.ativo:
+            if self.sock_client:
+                try:
+                    # Envia uma mensagem PING para verificar se a próxima estação está ativa
+                    self.sock_client.sendall("PING".encode())
+                    # Espera por uma resposta
+                    self.sock_client.settimeout(5)
+                    data = self.sock_client.recv(1024)
+                    if data.decode() != "PONG":
+                        raise Exception("PONG não recebido")
+                    print(f"{self.nome}: Próxima estação respondeu ao PING.")
+                    self.proxima_ativa = True
+                except (socket.timeout, Exception):
+                    # Se o PING falhar, iniciamos uma eleição
+                    print(f"{self.nome}: Falha na conexão com a próxima estação, iniciando eleição...")
+                    self.proxima_ativa = False
+                    self.iniciar_eleicao()
+            time.sleep(10)  # Verifica a cada 10 segundos
+            
+    # Função para iniciar o servidor para receber conexões da estação anterior
+
+    def server_next(self):
+        """Inicia o servidor para receber conexões da estação anterior no anel."""
+        try:
+            if not self.ativo:
+                self.ativo = True
+                self.server.bind(('127.0.0.1', self.port))
+                self.server.listen(5)
+                print(f"{self.estacao_id}: Servidor iniciado, esperando conexões...")
+
+                while self.ativo:
+                    conn, addr = self.server.accept()
+                    print(f"{self.estacao_id}: Conexão recebida de {addr}")
+                    # Cria uma thread para tratar essa conexão
+                    threading.Thread(target=self.handle_connection, args=(conn,)).start()
+        except Exception as e:
+            print(f"Erro ao iniciar o servidor: {e}")
+            
+    def stop_server_next(self):
+        """Desfaz a conexão e retorna ao estado inicial."""
+        print(f"{self.estacao_id}: Parando servidor...")
+        self.ativo = False  # Define a estação como inativa
+
+        # Fechar o servidor
+        try:
+            self.server.close()
+            print(f"{self.estacao_id}: Servidor fechado.")
+        except Exception as e:
+            print(f"{self.estacao_id}: Erro ao fechar o servidor: {e}")
+
+        # Reiniciar variáveis de estado
+        self.next_conn = None
+        self.proxima_ativa = False
+            
+    def connect_next_station(self):
+        while self.next_conn is None and self.ativo:
+            try:
+                self.next_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.next_conn.connect(('127.0.0.1', self.next_port))
+                print(f"{self.estacao_id}: Conectado à estação anterior.")
+            except ConnectionRefusedError:
+                print(f"{self.estacao_id}: Falha ao conectar à estação anterior. Tentando novamente...")
+                self.next_conn = None
+                time.sleep(1)
+                
+    def handle_connection(self, conn):
+        """Manipula as mensagens recebidas da estação anterior."""
+        while self.ativo:
+            try:
+                data = conn.recv(1024)
+                if not data:
+                    break
+                mensagem = data.decode()
+                print(f"{self.estacao_id}: Mensagem recebida: {mensagem}")
+                
+                if mensagem.startswith("PING"):
+                    # Responde ao ping para manter a verificação de conexão
+                    self.send_message(conn, "PONG")
+                elif mensagem.startswith("ELEICAO"):
+                    # Participa da eleição
+                    self.participar_eleicao(mensagem)
+                else:
+                    # Encaminha a mensagem ou processa conforme o protocolo
+                    self.send_message(conn, mensagem)
+            except Exception as e:
+                print(f"Erro na conexão com a estação anterior: {e}")
+                break
+
+    def iniciar_eleicao(self):
+        """Inicia uma eleição para redistribuir as vagas da estação com falha."""
+        mensagem_eleicao = f"ELEICAO {self.estacao_id} {self.port}"
+        self.send_message(self.next_conn, mensagem_eleicao)
+
+ 
+    def participar_eleicao(self, mensagem):
+        """Participa de uma eleição, comparando o ID recebido com o próprio."""
+        _, id_recebido, porta_recebida = mensagem.split()
+        id_recebido = int(id_recebido)
+        porta_recebida = int(porta_recebida)
+
+        if id_recebido > self.id_estacao:
+            # O ID recebido é maior, continua a eleição repassando o maior ID
+            print(f"{self.estacao_id}: Recebido ID maior ({id_recebido}). Repassando...")
+            self.enviar_mensagem_proximo(mensagem)
+        elif id_recebido < self.id_estacao:
+            # O ID da estação atual é maior, envia seu próprio ID e porta
+            print(f"{self.estacao_id}: é maior. Enviando meu ID e porta na eleição.")
+            self.enviar_mensagem_proximo(f"ELEICAO {self.id_estacao} {self.port}")
+        else:
+            # O ID retornou à estação inicial, eleição concluída
+            print(f"{self.estacao_id}: líder com e porta {self.port}.")
+            self.anunciar_eleito(self.id_estacao, self.port)
+            
+    def anunciar_eleito(self, id_eleito, porta_eleito):
+        """Informa a todas as estações que o líder foi escolhido, enviando seu ID e porta."""
+        mensagem = f"ELEITO {id_eleito} {porta_eleito}"
+        
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+            try:
+                client_socket.connect((self.gerente_host, self.gerente_port))
+                self.send_message(client_socket, mensagem)
+                response = client_socket.recv(1024).decode('utf-8')
+                print(f"Gerente resposta: {response}")
+            except ConnectionRefusedError:
+                print(f"Não foi possível conectar ao Gerente na {self.gerente_host}:{self.gerente_port}")
+
+            
 # Função para inicializar middlewares em threads separadas
 def inicializar_estacoes():
     gerente_host = '127.0.0.1'  # Host do gerente

@@ -33,16 +33,21 @@ class MiddlewareApp:
             
             elif "FE" in message:
                 # Desativa a estação ao receber "FE"
-                self.desativar_estacao()
-                self.comunicar_middleware_desativacao()
-                response = f"[{self.estacao_id}] Desativada!"
+                if self.ativo == True:
+                    self.desativar_estacao()
+                    self.comunicar_middleware_desativacao()
+                    response = f"[{self.estacao_id}] Desativada!"
+                else:
+                    print(f"{self.estacao_id} Já estava desativada!\n")
             elif "STATUS" in message:
                 response = f"Estação {self.estacao_id} está {'ativa' if self.ativo else 'inativa'}."
             
             elif "VD" in message:
-                # Processa o pedido de "Vagas Disponíveis"
-                response = self.obter_vagas_disponiveis_middleware()
-
+                if self.ativo == True:
+                    # Processa o pedido de "Vagas Disponíveis"
+                    response = self.obter_vagas_disponiveis_middleware()
+                else:
+                    print(f"VD {self.estacao_id} indisponivel\n ")
             else:
                 # Verifica se é uma requisição "RV" ou "LV" antes de processar
                 if "RV" in message:
