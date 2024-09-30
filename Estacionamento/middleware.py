@@ -55,6 +55,7 @@ class Middleware:
             self.atualizar_gerente(estacao_id)
             self.stop_server_next()
             print(f"{self.estacao_id}: Desativando servidor...")
+            print(f"{self.server}")
 
     def redirecionar_requisicao(self, original_message):
         print("Redirecionar requisição chamada")
@@ -272,16 +273,6 @@ class Middleware:
             try:
                 client_socket.connect((self.gerente_host, self.gerente_port))
                 self.send_message(client_socket, mensagem)
-                response = client_socket.recv(1024).decode('utf-8')
-                print(f"Gerente resposta: {response}")
-                
-                if response.startswith("UPDATE_NEXT"):
-                    # Atualiza a próxima estação no anel
-                    _, nome_proxima, ip_proxima, porta_proxima = response.split("#")
-                    self.ip_proximo = ip_proxima
-                    self.porta_proximo = int(porta_proxima)
-                    print(f"{self.nome}: Atualizando próxima estação para {nome_proxima} ({ip_proxima}:{porta_proxima})")
-                    self.connect_next_station() 
             except ConnectionRefusedError:
                 print(f"Não foi possível conectar ao Gerente na {self.gerente_host}:{self.gerente_port}")
 
@@ -299,20 +290,20 @@ class Middleware:
     def verificar_conexao_proxima_estacao(self):
         """Verifica periodicamente se a próxima estação no anel está ativa."""
         while self.ativo:
-            if self.sock_client:
+            if self.next_conn:
                 try:
                     # Envia uma mensagem PING para verificar se a próxima estação está ativa
-                    self.sock_client.sendall("PING".encode())
+                    self.next_conn.sendall("PING".encode())
                     # Espera por uma resposta
-                    self.sock_client.settimeout(5)
-                    data = self.sock_client.recv(1024)
+                    self.next_conn.settimeout(5)
+                    data = self.next_conn.recv(1024)
                     if data.decode() != "PONG":
                         raise Exception("PONG não recebido")
-                    print(f"{self.nome}: Próxima estação respondeu ao PING.")
+                    print(f"{self.estacao_id}: Próxima estação respondeu ao PING.")
                     self.proxima_ativa = True
                 except (socket.timeout, Exception):
                     # Se o PING falhar, iniciamos uma eleição
-                    print(f"{self.nome}: Falha na conexão com a próxima estação, iniciando eleição...")
+                    print(f"{self.estacao_id}: Falha na conexão com a próxima estação, iniciando eleição...")
                     self.proxima_ativa = False
                     self.iniciar_eleicao()
             time.sleep(10)  # Verifica a cada 10 segundos
@@ -344,6 +335,8 @@ class Middleware:
         # Fechar o servidor
         try:
             self.server.close()
+            self.next_conn.close()
+            self.proxima_ativa = False
             print(f"{self.estacao_id}: Servidor fechado.")
         except Exception as e:
             print(f"{self.estacao_id}: Erro ao fechar o servidor: {e}")
@@ -358,6 +351,8 @@ class Middleware:
                 self.next_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.next_conn.connect(('127.0.0.1', self.next_port))
                 print(f"{self.estacao_id}: Conectado à estação anterior.")
+                self.verificacao_thread = threading.Thread(target=self.verificar_conexao_proxima_estacao)
+                self.verificacao_thread.start()
             except ConnectionRefusedError:
                 print(f"{self.estacao_id}: Falha ao conectar à estação anterior. Tentando novamente...")
                 self.next_conn = None
@@ -376,6 +371,13 @@ class Middleware:
                 if mensagem.startswith("PING"):
                     # Responde ao ping para manter a verificação de conexão
                     self.send_message(conn, "PONG")
+                elif mensagem.startswith("UPDATE_NEXT"):
+                    # Atualiza a próxima estação no anel
+                    _, nome_proxima, porta_proxima = mensagem.split(" ")
+                    self.next_port = int(porta_proxima)
+                    print(f"{self.estacao_id}: Atualizando próxima estação para {nome_proxima} :{porta_proxima})")
+                    self.server_thread = threading.Thread(target=self.connect_next_station)
+                    self.server_thread.start()
                 elif mensagem.startswith("ELEICAO"):
                     # Participa da eleição
                     self.participar_eleicao(mensagem)
